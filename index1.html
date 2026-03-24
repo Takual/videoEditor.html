@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Video Editor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a22;
+      --surface2: #22222e;
+      --border: #2e2e3e;
+      --text: #f0f0f5;
+      --muted: #7878a0;
+      --accent: #6366f1;
+      --accent-h: #4f52d4;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overscroll-behavior: none;
+    }
+
+    /* ── HEADER ─────────────────────────────────── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      flex-shrink: 0;
+    }
+    .logo { font-size: 17px; font-weight: 800; letter-spacing: -0.5px; }
+    .logo span { color: var(--accent); }
+
+    .stats {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    /* ── BUTTONS ────────────────────────────────── */
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background .15s, opacity .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-h); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: var(--surface2); }
+    .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 7px; }
+
+    /* ── MAIN ───────────────────────────────────── */
+    .main { flex: 1; padding: 14px; overflow-x: hidden; }
+
+    /* ── DROP ZONE ──────────────────────────────── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      background: var(--surface);
+      margin-bottom: 16px;
+      display: block;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .drop-zone.over {
+      border-color: var(--accent);
+      background: rgba(99,102,241,.08);
+    }
+    .drop-icon { font-size: 36px; margin-bottom: 8px; }
+    .drop-text { font-size: 14px; color: var(--muted); line-height: 1.5; }
+    .drop-text strong { color: var(--text); }
+
+    /* ── STORYBOARD ─────────────────────────────── */
+    .board-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .board-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+    }
+
+    .storyboard {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 110px;
+      padding: 12px;
+      background: var(--surface);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      align-content: flex-start;
+    }
+
+    .board-empty {
+      width: 100%;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    /* ── CLIP TILE ──────────────────────────────── */
+    .tile {
+      width: 96px;
+      height: 78px;
+      border-radius: 10px;
+      cursor: grab;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      user-select: none;
+      touch-action: none;
+      transition: transform .12s, box-shadow .12s;
+      flex-shrink: 0;
+    }
+    .tile:hover { transform: scale(1.06); box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+    .tile.sortable-chosen { transform: scale(1.08) rotate(1.5deg); box-shadow: 0 10px 32px rgba(0,0,0,.6); z-index: 20; }
+    .tile.sortable-ghost { opacity: .25; }
+
+    .tile-num {
+      position: absolute;
+      top: 3px;
+      left: 5px;
+      font-size: 9px;
+      font-weight: 800;
+      color: rgba(255,255,255,.6);
+    }
+    .tile-icon { font-size: 20px; margin-bottom: 3px; }
+    .tile-name {
+      font-size: 9px;
+      font-weight: 700;
+      color: rgba(255,255,255,.92);
+      text-align: center;
+      max-width: 84px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-shadow: 0 1px 3px rgba(0,0,0,.6);
+    }
+    .tile-dur {
+      font-size: 8px;
+      color: rgba(255,255,255,.7);
+      margin-top: 2px;
+      text-shadow: 0 1px 3px rgba(0,0,0,.6);
+    }
+    .tile-del {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 16px;
+      height: 16px;
+      background: rgba(0,0,0,.55);
+      border-radius: 50%;
+      border: none;
+      color: #fff;
+      font-size: 9px;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .tile:hover .tile-del { display: flex; }
+
+    /* ── TRIM PANEL ─────────────────────────────── */
+    .trim-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.0);
+      z-index: 190;
+      pointer-events: none;
+      transition: background .3s;
+    }
+    .trim-overlay.open {
+      background: rgba(0,0,0,.5);
+      pointer-events: auto;
+    }
+
+    .trim-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      border-radius: 18px 18px 0 0;
+      padding: 0 18px 24px;
+      transform: translateY(100%);
+      transition: transform .3s cubic-bezier(.4,0,.2,1);
+      z-index: 200;
+      max-height: 82dvh;
+      overflow-y: auto;
+    }
+    .trim-panel.open { transform: translateY(0); }
+
+    .trim-handle {
+      width: 38px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 12px auto 14px;
+    }
+    .trim-title {
+      font-size: 15px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .trim-body {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+
+    .trim-preview-box {
+      flex-shrink: 0;
+      width: 130px;
+      height: 96px;
+      background: #000;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .trim-preview-box video,
+    .trim-preview-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .trim-controls { flex: 1; }
+
+    .ctrl-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--muted);
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    /* range track */
+    .range-track-wrap {
+      position: relative;
+      height: 28px;
+      margin-bottom: 4px;
+    }
+    .range-track {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    .range-fill {
+      position: absolute;
+      height: 100%;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+    input.rng {
+      -webkit-appearance: none;
+      appearance: none;
+      position: absolute;
+      width: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 28px;
+      background: transparent;
+      pointer-events: none;
+      margin: 0;
+    }
+    input.rng::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+      cursor: grab;
+      pointer-events: all;
+    }
+    input.rng::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+      cursor: grab;
+      pointer-events: all;
+    }
+    input.rng::-webkit-slider-track { background: transparent; }
+    input.rng::-moz-range-track { background: transparent; }
+
+    .range-times {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .dur-big {
+      font-size: 26px;
+      font-weight: 800;
+      margin: 4px 0 10px;
+    }
+
+    /* photo duration slider */
+    .photo-slider-wrap { margin-bottom: 8px; }
+    input.photo-rng {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+    input.photo-rng::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+      cursor: grab;
+    }
+    input.photo-rng::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    }
+
+    .trim-footer {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    /* ── EXPORT MODAL ───────────────────────────── */
+    .modal-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.7);
+      z-index: 300;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-bg.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 22px;
+      width: 100%;
+      max-width: 380px;
+      border: 1px solid var(--border);
+    }
+    .modal-title { font-size: 17px; font-weight: 800; margin-bottom: 18px; }
+
+    .fmt-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    .fmt-card {
+      background: var(--surface2);
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 8px;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color .15s, background .15s;
+    }
+    .fmt-card:hover, .fmt-card.sel {
+      border-color: var(--accent);
+      background: rgba(99,102,241,.12);
+    }
+    .fmt-thumb {
+      background: var(--accent);
+      border-radius: 3px;
+      opacity: .65;
+      margin: 0 auto 7px;
+    }
+    .fmt-key { font-size: 14px; font-weight: 800; }
+    .fmt-name { font-size: 10px; color: var(--muted); margin-top: 1px; }
+
+    .modal-footer { display: flex; gap: 8px; }
+
+    /* ── PROGRESS ───────────────────────────────── */
+    .progress-bg {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.88);
+      z-index: 400;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 32px;
+      text-align: center;
+    }
+    .progress-bg.open { display: flex; }
+    .progress-emoji { font-size: 44px; }
+    .progress-label { font-size: 16px; font-weight: 700; }
+    .progress-clip { font-size: 12px; color: var(--muted); }
+    .progress-bar-bg {
+      width: 240px;
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width .25s;
+      width: 0%;
+    }
+    .progress-note {
+      font-size: 11px;
+      color: var(--muted);
+      max-width: 260px;
+      line-height: 1.5;
+    }
+
+    /* ── PREVIEW OVERLAY ────────────────────────── */
+    .preview-bg {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 500;
+      display: none;
+      flex-direction: column;
+    }
+    .preview-bg.open { display: flex; }
+
+    .preview-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: rgba(0,0,0,.6);
+      flex-shrink: 0;
+      gap: 10px;
+    }
+    .preview-clip-info {
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .preview-clip-info span { color: var(--muted); font-weight: 400; }
+    .preview-stop {
+      background: rgba(255,255,255,.12);
+      border: none;
+      color: #fff;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .preview-stop:hover { background: rgba(255,255,255,.25); }
+
+    .preview-stage {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #000;
+    }
+    .preview-stage video,
+    .preview-stage img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .preview-bottom {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px 16px;
+      background: rgba(0,0,0,.6);
+      flex-shrink: 0;
+    }
+    .preview-pp {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .preview-pp:hover { background: var(--accent-h); }
+
+    .preview-track {
+      flex: 1;
+      height: 5px;
+      background: rgba(255,255,255,.2);
+      border-radius: 3px;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .preview-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      width: 0%;
+      transition: width .15s linear;
+      pointer-events: none;
+    }
+    .preview-time {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── IOS WARNING ─────────────────────────────── */
+    .ios-warning {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.85);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .ios-warning-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 28px 22px;
+      max-width: 340px;
+      text-align: center;
+    }
+    .ios-warning-box .wi { font-size: 48px; margin-bottom: 12px; }
+    .ios-warning-box h2 { font-size: 17px; font-weight: 800; margin-bottom: 10px; }
+    .ios-warning-box p { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 14px; }
+    .ios-warning-box ol { text-align: left; font-size: 13px; color: var(--text); line-height: 1.8; padding-left: 18px; margin-bottom: 18px; }
+    .ios-warning-box .step-em { color: var(--accent); font-weight: 700; }
+  </style>
+</head>
+<body>
+
+<!-- IOS QUICK LOOK WARNING -->
+<div class="ios-warning" id="iosWarning" style="display:none">
+  <div class="ios-warning-box">
+    <div class="wi">🚫</div>
+    <h2>Safari erforderlich</h2>
+    <p>Diese Datei ist in der <strong>Quick Look Vorschau</strong> geöffnet — dort funktioniert kein Datei-Zugriff.</p>
+    <ol>
+      <li>Tippe unten auf <span class="step-em">Teilen ↑</span></li>
+      <li>Wähle <span class="step-em">„In Safari öffnen"</span></li>
+    </ol>
+    <p style="font-size:12px">Alternativ: Datei hosten und per URL in Safari öffnen.</p>
+    <button class="btn" style="width:100%" onclick="document.getElementById('iosWarning').style.display='none'">Trotzdem versuchen</button>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">🎬 <span>Video</span>Editor</div>
+  <div class="stats" id="statsEl">0 Clips · 0:00</div>
+  <button class="btn btn-ghost" id="previewBtn" disabled onclick="startPreview()" style="padding:9px 14px">▶ Vorschau</button>
+  <button class="btn" id="exportBtn" disabled onclick="openExport()">⬇ Export</button>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <label class="drop-zone" id="dropZone" for="fileInput">
+    <div class="drop-icon">📁</div>
+    <div class="drop-text"><strong>Videos &amp; Fotos hinzufügen</strong><br>Drag &amp; Drop oder antippen</div>
+  </label>
+  <input type="file" id="fileInput" accept="video/*,image/*" multiple style="display:none">
+
+  <div class="board-header">
+    <span class="board-label">Storyboard</span>
+    <span class="board-label" id="orderHint" style="color:var(--muted);font-weight:400;font-size:10px">↕ Halten &amp; Ziehen zum Sortieren · Doppeltipp zum Trimmen</span>
+  </div>
+
+  <div class="storyboard" id="storyboard">
+    <div class="board-empty" id="boardEmpty">Noch leer — füge Videos und Fotos oben hinzu</div>
+  </div>
+</div>
+
+<!-- TRIM OVERLAY + PANEL -->
+<div class="trim-overlay" id="trimOverlay" onclick="closeTrim()"></div>
+<div class="trim-panel" id="trimPanel">
+  <div class="trim-handle"></div>
+  <div class="trim-title" id="trimTitle">Clip bearbeiten</div>
+  <div class="trim-body">
+    <div class="trim-preview-box" id="trimPreviewBox"></div>
+    <div class="trim-controls" id="trimControlsBox"></div>
+  </div>
+  <div class="trim-footer">
+    <button class="btn btn-ghost" style="flex:1" onclick="closeTrim()">Schließen</button>
+  </div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div class="modal-bg" id="exportModal">
+  <div class="modal">
+    <div class="modal-title">Export-Format wählen</div>
+    <div class="fmt-grid" id="fmtGrid"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeExport()">Abbrechen</button>
+      <button class="btn" style="flex:1" onclick="startExport()">▶ Starten</button>
+    </div>
+  </div>
+</div>
+
+<!-- PREVIEW -->
+<div class="preview-bg" id="previewBg">
+  <div class="preview-top">
+    <div class="preview-clip-info" id="pvClipInfo">Clip 1 / 1</div>
+    <button class="preview-stop" onclick="stopPreview()" title="Vorschau beenden">✕</button>
+  </div>
+  <div class="preview-stage" id="pvStage"></div>
+  <div class="preview-bottom">
+    <button class="preview-pp" id="pvPP" onclick="togglePreviewPause()">⏸</button>
+    <div class="preview-track" id="pvTrack">
+      <div class="preview-fill" id="pvFill"></div>
+    </div>
+    <div class="preview-time" id="pvTime">0:00 / 0:00</div>
+  </div>
+</div>
+
+<!-- PROGRESS -->
+<div class="progress-bg" id="progressBg">
+  <div class="progress-emoji" id="progressEmoji">⏳</div>
+  <div class="progress-label" id="progressLabel">Exportiere…</div>
+  <div class="progress-clip" id="progressClip"></div>
+  <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="progress-note">Export läuft in Echtzeit.<br>Bitte Fenster nicht schließen.</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script>
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+
+const COLORS = [
+  '#ef4444','#f97316','#eab308','#22c55e',
+  '#3b82f6','#8b5cf6','#ec4899','#14b8a6',
+  '#06b6d4','#a855f7','#84cc16','#f43f5e'
+];
+
+const FORMATS = [
+  { key:'16:9',  label:'Landscape', sub:'YouTube · TV',       w:1920, h:1080, tw:44, th:25 },
+  { key:'9:16',  label:'Story',     sub:'TikTok · Reels',     w:1080, h:1920, tw:25, th:44 },
+  { key:'1:1',   label:'Square',    sub:'Instagram',          w:1080, h:1080, tw:34, th:34 },
+  { key:'4:5',   label:'Portrait',  sub:'Instagram mobil',    w:1080, h:1350, tw:30, th:38 },
+  { key:'4:3',   label:'Classic',   sub:'Präsentation',       w:1440, h:1080, tw:40, th:30 },
+];
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+
+let clips = [];
+let uid = 0;
+let colorIdx = 0;
+let activeTrimId = null;
+let selectedFmt = '16:9';
+let lastTap = {};
+
+// ─── DOM REFS ─────────────────────────────────────────────────────────────────
+
+const dropZone       = document.getElementById('dropZone');
+const fileInput      = document.getElementById('fileInput');
+const storyboard     = document.getElementById('storyboard');
+const boardEmpty     = document.getElementById('boardEmpty');
+const statsEl        = document.getElementById('statsEl');
+const exportBtn      = document.getElementById('exportBtn');
+const previewBtn     = document.getElementById('previewBtn');
+const trimOverlay    = document.getElementById('trimOverlay');
+const trimPanel      = document.getElementById('trimPanel');
+const trimTitle      = document.getElementById('trimTitle');
+const trimPreviewBox = document.getElementById('trimPreviewBox');
+const trimControlsBox= document.getElementById('trimControlsBox');
+const exportModal    = document.getElementById('exportModal');
+const fmtGrid        = document.getElementById('fmtGrid');
+const progressBg     = document.getElementById('progressBg');
+const progressLabel  = document.getElementById('progressLabel');
+const progressClip   = document.getElementById('progressClip');
+const progressBar    = document.getElementById('progressBar');
+const progressEmoji  = document.getElementById('progressEmoji');
+
+// ─── SORTABLE ─────────────────────────────────────────────────────────────────
+
+new Sortable(storyboard, {
+  animation: 160,
+  ghostClass: 'sortable-ghost',
+  chosenClass: 'sortable-chosen',
+  delay: 200,
+  delayOnTouchOnly: true,
+  filter: '.tile-del, .board-empty',
+  onEnd: syncOrder,
+});
+
+// ─── IMPORT ───────────────────────────────────────────────────────────────────
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  addFiles([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', e => { addFiles([...e.target.files]); fileInput.value = ''; });
+
+async function addFiles(files) {
+  for (const f of files) {
+    if (!f.type.startsWith('video/') && !f.type.startsWith('image/')) continue;
+    const isVid = f.type.startsWith('video/');
+    const url = URL.createObjectURL(f);
+    const clip = {
+      id: ++uid,
+      type: isVid ? 'video' : 'photo',
+      file: f,
+      url,
+      name: f.name.replace(/\.[^.]+$/, ''),
+      color: COLORS[colorIdx++ % COLORS.length],
+      trimStart: 0,
+      trimEnd: 0,
+      fullDuration: 0,
+      displayDuration: 5,
+    };
+    if (isVid) await loadDuration(clip);
+    clips.push(clip);
+    renderTile(clip);
+  }
+  updateUI();
+}
+
+function loadDuration(clip) {
+  return new Promise(res => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.src = clip.url;
+    v.onloadedmetadata = () => {
+      clip.fullDuration = v.duration;
+      clip.trimEnd = v.duration;
+      res();
+    };
+    v.onerror = res;
+  });
+}
+
+// ─── RENDER TILE ──────────────────────────────────────────────────────────────
+
+function renderTile(clip) {
+  boardEmpty.style.display = 'none';
+
+  const div = document.createElement('div');
+  div.className = 'tile';
+  div.dataset.id = clip.id;
+  div.style.background = `linear-gradient(140deg, ${clip.color}ee, ${clip.color}77)`;
+
+  div.innerHTML = `
+    <span class="tile-num"></span>
+    <div class="tile-icon">${clip.type === 'video' ? '🎬' : '🖼️'}</div>
+    <div class="tile-name">${esc(clip.name)}</div>
+    <div class="tile-dur" id="d${clip.id}">${durLabel(clip)}</div>
+    <button class="tile-del" onclick="delClip(${clip.id},event)">✕</button>
+  `;
+
+  // double-click desktop
+  div.addEventListener('dblclick', () => openTrim(clip.id));
+
+  // double-tap mobile
+  div.addEventListener('touchend', e => {
+    const now = Date.now();
+    if (lastTap[clip.id] && now - lastTap[clip.id] < 320) {
+      e.preventDefault();
+      openTrim(clip.id);
+      lastTap[clip.id] = 0;
+    } else {
+      lastTap[clip.id] = now;
+    }
+  });
+
+  storyboard.appendChild(div);
+  reindex();
+}
+
+function durLabel(c) {
+  return c.type === 'video'
+    ? ftm(c.trimEnd - c.trimStart)
+    : c.displayDuration.toFixed(1) + 's';
+}
+
+function refreshDur(clip) {
+  const el = document.getElementById('d' + clip.id);
+  if (el) el.textContent = durLabel(clip);
+  updateUI();
+}
+
+function reindex() {
+  storyboard.querySelectorAll('.tile').forEach((t, i) => {
+    const s = t.querySelector('.tile-num');
+    if (s) s.textContent = i + 1;
+  });
+}
+
+function syncOrder() {
+  const ids = [...storyboard.querySelectorAll('.tile')].map(t => +t.dataset.id);
+  clips = ids.map(id => clips.find(c => c.id === id)).filter(Boolean);
+  reindex();
+}
+
+function delClip(id, e) {
+  e.stopPropagation();
+  const t = storyboard.querySelector(`[data-id="${id}"]`);
+  if (t) t.remove();
+  clips = clips.filter(c => c.id !== id);
+  reindex();
+  updateUI();
+  if (activeTrimId === id) closeTrim();
+}
+
+function updateUI() {
+  const n = clips.length;
+  boardEmpty.style.display = n ? 'none' : 'flex';
+  exportBtn.disabled = n === 0;
+  previewBtn.disabled = n === 0;
+  const total = clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
+  statsEl.textContent = `${n} Clip${n !== 1 ? 's' : ''} · ${ftm(total)}`;
+}
+
+// ─── TRIM PANEL ───────────────────────────────────────────────────────────────
+
+function openTrim(id) {
+  const clip = clips.find(c => c.id === id);
+  if (!clip) return;
+  activeTrimId = id;
+
+  trimTitle.textContent = clip.name;
+
+  // Preview
+  trimPreviewBox.innerHTML = '';
+  if (clip.type === 'video') {
+    const vid = document.createElement('video');
+    vid.src = clip.url;
+    vid.muted = true;
+    vid.loop = true;
+    vid.playsinline = true;
+    vid.currentTime = clip.trimStart;
+    vid.style.cssText = 'width:100%;height:100%;object-fit:cover';
+    trimPreviewBox.appendChild(vid);
+    vid.play().catch(() => {});
+  } else {
+    const img = document.createElement('img');
+    img.src = clip.url;
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+    trimPreviewBox.appendChild(img);
+  }
+
+  // Controls
+  trimControlsBox.innerHTML = '';
+
+  if (clip.type === 'video') {
+    const max = clip.fullDuration || clip.trimEnd;
+
+    trimControlsBox.innerHTML = `
+      <label class="ctrl-label">Start / Ende</label>
+      <div class="range-track-wrap">
+        <div class="range-track"></div>
+        <div class="range-fill" id="rfill" style="background:${clip.color}"></div>
+        <input class="rng" type="range" id="rs" min="0" max="${max}" step="0.05" value="${clip.trimStart}">
+        <input class="rng" type="range" id="re" min="0" max="${max}" step="0.05" value="${clip.trimEnd}">
+      </div>
+      <div class="range-times">
+        <span id="rtS">${ftm(clip.trimStart)}</span>
+        <span id="rtE">${ftm(clip.trimEnd)}</span>
+      </div>
+      <label class="ctrl-label">Dauer</label>
+      <div class="dur-big" id="durBig" style="color:${clip.color}">${ftm(clip.trimEnd - clip.trimStart)}</div>
+    `;
+
+    const rs = document.getElementById('rs');
+    const re = document.getElementById('re');
+    const rfill = document.getElementById('rfill');
+    const rtS = document.getElementById('rtS');
+    const rtE = document.getElementById('rtE');
+    const durBig = document.getElementById('durBig');
+    const vid = trimPreviewBox.querySelector('video');
+
+    function applyFill() {
+      const p1 = (parseFloat(rs.value) / max) * 100;
+      const p2 = (parseFloat(re.value) / max) * 100;
+      rfill.style.left = p1 + '%';
+      rfill.style.width = (p2 - p1) + '%';
+    }
+
+    rs.addEventListener('input', () => {
+      let v = Math.min(parseFloat(rs.value), parseFloat(re.value) - 0.1);
+      rs.value = v;
+      clip.trimStart = v;
+      rtS.textContent = ftm(v);
+      durBig.textContent = ftm(clip.trimEnd - v);
+      applyFill();
+      refreshDur(clip);
+      if (vid) vid.currentTime = v;
+    });
+
+    re.addEventListener('input', () => {
+      let v = Math.max(parseFloat(re.value), parseFloat(rs.value) + 0.1);
+      re.value = v;
+      clip.trimEnd = v;
+      rtE.textContent = ftm(v);
+      durBig.textContent = ftm(v - clip.trimStart);
+      applyFill();
+      refreshDur(clip);
+    });
+
+    applyFill();
+
+  } else {
+    // Photo
+    trimControlsBox.innerHTML = `
+      <label class="ctrl-label">Anzeigedauer</label>
+      <div class="photo-slider-wrap">
+        <input class="photo-rng" type="range" id="ps"
+          min="1" max="30" step="0.5" value="${clip.displayDuration}"
+          style="background: linear-gradient(to right, ${clip.color} 0%, ${clip.color} ${((clip.displayDuration-1)/29)*100}%, var(--border) ${((clip.displayDuration-1)/29)*100}%)">
+      </div>
+      <div class="dur-big" id="pdur" style="color:${clip.color}">${clip.displayDuration.toFixed(1)}s</div>
+    `;
+
+    const ps = document.getElementById('ps');
+    const pdur = document.getElementById('pdur');
+
+    ps.addEventListener('input', () => {
+      clip.displayDuration = parseFloat(ps.value);
+      pdur.textContent = clip.displayDuration.toFixed(1) + 's';
+      const pct = ((clip.displayDuration - 1) / 29) * 100;
+      ps.style.background = `linear-gradient(to right, ${clip.color} 0%, ${clip.color} ${pct}%, var(--border) ${pct}%)`;
+      refreshDur(clip);
+    });
+  }
+
+  trimPanel.classList.add('open');
+  trimOverlay.classList.add('open');
+}
+
+function closeTrim() {
+  trimPanel.classList.remove('open');
+  trimOverlay.classList.remove('open');
+  const vid = trimPreviewBox.querySelector('video');
+  if (vid) vid.pause();
+  activeTrimId = null;
+}
+
+// ─── PREVIEW ──────────────────────────────────────────────────────────────────
+
+const previewBg   = document.getElementById('previewBg');
+const pvStage     = document.getElementById('pvStage');
+const pvClipInfo  = document.getElementById('pvClipInfo');
+const pvPP        = document.getElementById('pvPP');
+const pvFill      = document.getElementById('pvFill');
+const pvTime      = document.getElementById('pvTime');
+
+let pvStopped  = false;
+let pvPaused   = false;
+let pvCurVid   = null;   // active video element during preview
+
+const totalPreviewDur = () =>
+  clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
+
+function pvSetProgress(elapsed) {
+  const total = totalPreviewDur();
+  const pct = total > 0 ? Math.min((elapsed / total) * 100, 100) : 0;
+  pvFill.style.width = pct + '%';
+  pvTime.textContent = `${ftm(elapsed)} / ${ftm(total)}`;
+}
+
+async function startPreview() {
+  if (clips.length === 0) return;
+  pvStopped = false;
+  pvPaused  = false;
+  pvPP.textContent = '⏸';
+  pvFill.style.width = '0%';
+  pvStage.innerHTML = '';
+  previewBg.classList.add('open');
+
+  let elapsed = 0;
+
+  for (let i = 0; i < clips.length; i++) {
+    if (pvStopped) break;
+    const clip = clips[i];
+    pvClipInfo.innerHTML = `Clip ${i + 1} / ${clips.length} &nbsp;<span>· ${esc(clip.name)}</span>`;
+
+    const clipDur = clip.type === 'video' ? (clip.trimEnd - clip.trimStart) : clip.displayDuration;
+    const onTick = e => pvSetProgress(elapsed + e);
+
+    if (clip.type === 'video') {
+      await pvPlayVideo(clip, onTick);
+    } else {
+      await pvShowPhoto(clip, onTick);
+    }
+    elapsed += clipDur;
+  }
+
+  if (!pvStopped) {
+    pvClipInfo.innerHTML = '✅ &nbsp;<span>Fertig</span>';
+    pvFill.style.width = '100%';
+    pvPP.textContent = '▶';
+    // auto-close after 2s
+    setTimeout(() => { if (!pvStopped) stopPreview(); }, 2000);
+  }
+}
+
+function pvPlayVideo(clip, onTick) {
+  return new Promise((resolve) => {
+    const vid = document.createElement('video');
+    vid.src = clip.url;
+    vid.playsinline = true;
+    vid.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+    pvStage.innerHTML = '';
+    pvStage.appendChild(vid);
+    pvCurVid = vid;
+
+    vid.addEventListener('loadeddata', () => { vid.currentTime = clip.trimStart; }, { once: true });
+    vid.addEventListener('seeked', () => {
+      vid.play().catch(() => {});
+      let frameId;
+      const duration = clip.trimEnd - clip.trimStart;
+      const tick = () => {
+        if (pvStopped) { vid.pause(); resolve(); return; }
+        if (pvPaused)  { frameId = requestAnimationFrame(tick); return; }
+        const elapsed = vid.currentTime - clip.trimStart;
+        onTick(Math.max(0, elapsed));
+        if (vid.ended || vid.currentTime >= clip.trimEnd - 0.05) {
+          vid.pause();
+          pvCurVid = null;
+          resolve();
+        } else {
+          frameId = requestAnimationFrame(tick);
+        }
+      };
+      frameId = requestAnimationFrame(tick);
+    }, { once: true });
+
+    vid.onerror = () => { pvCurVid = null; resolve(); };
+    vid.load();
+  });
+}
+
+function pvShowPhoto(clip, onTick) {
+  return new Promise(resolve => {
+    const img = document.createElement('img');
+    img.src = clip.url;
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+    pvStage.innerHTML = '';
+    pvStage.appendChild(img);
+    pvCurVid = null;
+
+    const dur = clip.displayDuration * 1000;
+    let elapsed = 0;
+    let lastTs = null;
+
+    const tick = (ts) => {
+      if (pvStopped) { resolve(); return; }
+      if (lastTs !== null && !pvPaused) elapsed += ts - lastTs;
+      lastTs = ts;
+      onTick(elapsed / 1000);
+      if (elapsed >= dur) { resolve(); } else { requestAnimationFrame(tick); }
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function togglePreviewPause() {
+  pvPaused = !pvPaused;
+  pvPP.textContent = pvPaused ? '▶' : '⏸';
+  if (pvCurVid) {
+    if (pvPaused) pvCurVid.pause();
+    else pvCurVid.play().catch(() => {});
+  }
+}
+
+function stopPreview() {
+  pvStopped = true;
+  if (pvCurVid) { pvCurVid.pause(); pvCurVid = null; }
+  pvStage.innerHTML = '';
+  previewBg.classList.remove('open');
+}
+
+// ─── EXPORT MODAL ─────────────────────────────────────────────────────────────
+
+function openExport() {
+  fmtGrid.innerHTML = '';
+  FORMATS.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'fmt-card' + (f.key === selectedFmt ? ' sel' : '');
+    card.innerHTML = `
+      <div class="fmt-thumb" style="width:${f.tw}px;height:${f.th}px"></div>
+      <div class="fmt-key">${f.key}</div>
+      <div class="fmt-name">${f.label}</div>
+      <div class="fmt-name" style="color:#444">${f.sub}</div>
+    `;
+    card.onclick = () => {
+      document.querySelectorAll('.fmt-card').forEach(c => c.classList.remove('sel'));
+      card.classList.add('sel');
+      selectedFmt = f.key;
+    };
+    fmtGrid.appendChild(card);
+  });
+  exportModal.classList.add('open');
+}
+
+function closeExport() {
+  exportModal.classList.remove('open');
+}
+
+// ─── EXPORT ENGINE ────────────────────────────────────────────────────────────
+
+async function startExport() {
+  closeExport();
+
+  const fmt = FORMATS.find(f => f.key === selectedFmt);
+  if (!fmt || clips.length === 0) return;
+
+  // check MediaRecorder support
+  if (typeof MediaRecorder === 'undefined') {
+    alert('Dein Browser unterstützt leider keinen Video-Export.\nBitte Chrome, Edge oder Firefox verwenden.');
+    return;
+  }
+
+  const totalDur = clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
+
+  // setup canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = fmt.w;
+  canvas.height = fmt.h;
+  const ctx = canvas.getContext('2d');
+
+  // find supported mime
+  const mimes = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4'];
+  const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+  // audio
+  let audioCtx = null, audioDest = null;
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioDest = audioCtx.createMediaStreamDestination();
+  } catch(e) {}
+
+  const cvStream = canvas.captureStream(30);
+  const tracks = [...cvStream.getVideoTracks(), ...(audioDest ? audioDest.stream.getAudioTracks() : [])];
+  const stream = new MediaStream(tracks);
+
+  const opts = mime ? { mimeType: mime, videoBitsPerSecond: 6_000_000 } : {};
+  let recorder;
+  try { recorder = new MediaRecorder(stream, opts); }
+  catch(e) { recorder = new MediaRecorder(stream); }
+
+  const chunks = [];
+  recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+  // show progress
+  progressBg.classList.add('open');
+  progressBar.style.width = '0%';
+  progressEmoji.textContent = '⏳';
+
+  recorder.start(200);
+
+  let elapsed = 0;
+  let ok = true;
+
+  try {
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      progressLabel.textContent = `Clip ${i + 1} von ${clips.length}`;
+      progressClip.textContent = clip.name;
+
+      const clipDur = clip.type === 'video' ? (clip.trimEnd - clip.trimStart) : clip.displayDuration;
+
+      const onProg = p => {
+        const pct = ((elapsed + p * clipDur) / totalDur) * 100;
+        progressBar.style.width = Math.min(pct, 100) + '%';
+      };
+
+      if (clip.type === 'video') {
+        await renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg);
+      } else {
+        await renderPhoto(clip, canvas, ctx, onProg);
+      }
+
+      elapsed += clipDur;
+    }
+  } catch(err) {
+    ok = false;
+    console.error(err);
+  }
+
+  progressBar.style.width = '100%';
+  progressLabel.textContent = ok ? 'Fertig!' : 'Fehler beim Export';
+  progressEmoji.textContent = ok ? '✅' : '❌';
+  progressClip.textContent = 'Datei wird vorbereitet…';
+
+  recorder.stop();
+
+  recorder.onstop = () => {
+    if (audioCtx) audioCtx.close();
+    if (!ok || chunks.length === 0) {
+      setTimeout(() => progressBg.classList.remove('open'), 2000);
+      return;
+    }
+    const finalMime = mime || 'video/webm';
+    const blob = new Blob(chunks, { type: finalMime });
+    const ext = finalMime.includes('mp4') ? 'mp4' : 'webm';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `video_${fmt.key.replace(':','x')}_${Date.now()}.${ext}`;
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      progressBg.classList.remove('open');
+    }, 1500);
+  };
+}
+
+function renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg) {
+  return new Promise((resolve, reject) => {
+    const vid = document.createElement('video');
+    vid.src = clip.url;
+    vid.playsinline = true;
+    vid.muted = !audioDest;
+    vid.preload = 'auto';
+
+    let audioSrc = null;
+    if (audioCtx && audioDest) {
+      try {
+        audioSrc = audioCtx.createMediaElementSource(vid);
+        audioSrc.connect(audioDest);
+      } catch(e) {}
+    }
+
+    const duration = clip.trimEnd - clip.trimStart;
+    let frameId;
+    let startStamp;
+
+    vid.addEventListener('loadeddata', () => { vid.currentTime = clip.trimStart; }, { once: true });
+    vid.addEventListener('seeked', () => {
+      vid.play().then(() => {
+        startStamp = performance.now();
+        const draw = () => {
+          const elapsed = (performance.now() - startStamp) / 1000;
+          drawCover(ctx, vid, canvas.width, canvas.height);
+          onProg(Math.min(elapsed / duration, 1));
+          if (elapsed >= duration || vid.ended || vid.currentTime >= clip.trimEnd - 0.05) {
+            vid.pause();
+            if (audioSrc) audioSrc.disconnect();
+            cancelAnimationFrame(frameId);
+            resolve();
+          } else {
+            frameId = requestAnimationFrame(draw);
+          }
+        };
+        frameId = requestAnimationFrame(draw);
+      }).catch(reject);
+    }, { once: true });
+
+    vid.onerror = reject;
+    vid.load();
+  });
+}
+
+function renderPhoto(clip, canvas, ctx, onProg) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.src = clip.url;
+    img.onload = () => {
+      const dur = clip.displayDuration * 1000;
+      const t0 = performance.now();
+      const draw = () => {
+        const elapsed = performance.now() - t0;
+        drawCover(ctx, img, canvas.width, canvas.height);
+        onProg(Math.min(elapsed / dur, 1));
+        if (elapsed >= dur) { resolve(); } else { requestAnimationFrame(draw); }
+      };
+      requestAnimationFrame(draw);
+    };
+    img.onerror = () => resolve();
+  });
+}
+
+function drawCover(ctx, media, cw, ch) {
+  const mw = media.videoWidth || media.naturalWidth;
+  const mh = media.videoHeight || media.naturalHeight;
+  if (!mw || !mh) return;
+  const scale = Math.max(cw / mw, ch / mh);
+  const sw = mw * scale, sh = mh * scale;
+  ctx.drawImage(media, (cw - sw) / 2, (ch - sh) / 2, sw, sh);
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+
+function ftm(sec) {
+  sec = Math.max(0, sec || 0);
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const f = Math.floor((sec % 1) * 10);
+  return `${m}:${String(s).padStart(2,'0')}.${f}`;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── IOS QUICK LOOK DETECTION ─────────────────────────────────────────────────
+
+(function() {
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isFileProtocol = location.protocol === 'file:';
+  // In Quick Look, window.history is frozen and navigation is blocked
+  const isQuickLook = isIOS && isFileProtocol;
+  if (isQuickLook) {
+    document.getElementById('iosWarning').style.display = 'flex';
+  }
+})();
+</script>
+</body>
+</html>
