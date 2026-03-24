@@ -741,6 +741,7 @@
 
 <!-- PROGRESS -->
 <div class="progress-bg" id="progressBg">
+  <div id="exportCanvasBox" style="display:none;width:100%;text-align:center;flex-shrink:0"></div>
   <div class="progress-emoji" id="progressEmoji">⏳</div>
   <div class="progress-label" id="progressLabel">Exportiere…</div>
   <div class="progress-clip" id="progressClip"></div>
@@ -1283,8 +1284,20 @@ async function startExport() {
   progressBg.classList.add('open');
   progressBar.style.width = '0%';
   progressEmoji.textContent = '⏳';
+  progressLabel.textContent = 'Vorbereitung…';
+  progressClip.textContent = '';
   document.getElementById('progressActions').style.display = 'none';
   document.getElementById('progressNote').style.display = '';
+
+  // Canvas sichtbar in den Progress-Screen einblenden (skaliert auf Viewport)
+  const canvasBox = document.getElementById('exportCanvasBox');
+  const s = Math.min(1, (window.innerWidth - 48) / canvas.width, (window.innerHeight * 0.38) / canvas.height);
+  canvas.style.cssText = `width:${(canvas.width * s)|0}px;height:${(canvas.height * s)|0}px;border-radius:10px;display:inline-block`;
+  canvasBox.appendChild(canvas);
+  canvasBox.style.display = '';
+
+  // Erstes Frame zeichnen BEVOR Recorder startet → kein Schwarzbild am Anfang
+  await preDrawFirstFrame(clips[0], canvas, ctx);
 
   recorder.start(200);
 
@@ -1377,6 +1390,9 @@ function closeProgress() {
   progressBg.classList.remove('open');
   document.getElementById('progressActions').style.display = 'none';
   document.getElementById('progressNote').style.display = '';
+  const box = document.getElementById('exportCanvasBox');
+  box.innerHTML = '';
+  box.style.display = 'none';
   const ep = document.getElementById('exportPreview');
   ep.style.display = 'none';
   ep.src = '';
@@ -1454,6 +1470,27 @@ function drawCover(ctx, media, cw, ch) {
   const scale = Math.max(cw / mw, ch / mh);
   const sw = mw * scale, sh = mh * scale;
   ctx.drawImage(media, (cw - sw) / 2, (ch - sh) / 2, sw, sh);
+}
+
+// Erstes Frame des ersten Clips zeichnen um Schwarzbild am Anfang zu vermeiden
+function preDrawFirstFrame(clip, canvas, ctx) {
+  return new Promise(resolve => {
+    if (clip.type === 'photo') {
+      const img = new Image();
+      img.onload = () => { drawCover(ctx, img, canvas.width, canvas.height); resolve(); };
+      img.onerror = resolve;
+      img.src = clip.url;
+    } else {
+      const vid = document.createElement('video');
+      vid.preload = 'auto';
+      vid.muted = true;
+      vid.src = clip.url;
+      vid.addEventListener('loadeddata', () => { vid.currentTime = clip.trimStart; }, { once: true });
+      vid.addEventListener('seeked', () => { drawCover(ctx, vid, canvas.width, canvas.height); resolve(); }, { once: true });
+      vid.onerror = resolve;
+      vid.load();
+    }
+  });
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
