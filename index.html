@@ -484,6 +484,32 @@
       line-height: 1.5;
     }
 
+    /* ── TRANSITION CONNECTOR ────────────────────── */
+    .trans-connector {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1.5px dashed var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      align-self: center;
+      transition: all .15s;
+      user-select: none;
+    }
+    .trans-connector:hover { border-color: var(--accent); color: var(--accent); }
+    .trans-connector.active {
+      border-style: solid;
+      border-color: var(--accent);
+      background: rgba(99,102,241,.18);
+      color: var(--accent);
+    }
+
     /* ── PREVIEW OVERLAY ────────────────────────── */
     .preview-bg {
       position: fixed;
@@ -673,7 +699,7 @@
 
 <!-- HEADER -->
 <div class="header">
-  <div class="logo">🎬 <span>Video</span>Editor<span class="ver">v1.2</span></div>
+  <div class="logo">🎬 <span>Video</span>Editor<span class="ver">v1.3</span></div>
   <div class="stats" id="statsEl">0 Clips · 0:00</div>
   <button class="btn btn-ghost" id="previewBtn" disabled onclick="startPreview()" style="padding:9px 14px">▶ Vorschau</button>
   <button class="btn" id="exportBtn" disabled onclick="openExport()">⬇ Export</button>
@@ -760,7 +786,8 @@
 <script>
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
-const VERSION = '1.2';
+const VERSION = '1.3';
+const TRANS_DUR = 0.5; // Überblendungsdauer in Sekunden (0.25s fade-out + 0.25s fade-in)
 
 const COLORS = [
   '#ef4444','#f97316','#eab308','#22c55e',
@@ -815,8 +842,8 @@ new Sortable(storyboard, {
   chosenClass: 'sortable-chosen',
   delay: 200,
   delayOnTouchOnly: true,
-  filter: '.tile-del, .board-empty',
-  onEnd: syncOrder,
+  filter: '.tile-del, .board-empty, .trans-connector',
+  onEnd: () => { syncOrder(); updateTransitionConnectors(); },
 });
 
 // ─── IMPORT ───────────────────────────────────────────────────────────────────
@@ -846,6 +873,7 @@ async function addFiles(files) {
       trimEnd: 0,
       fullDuration: 0,
       displayDuration: 5,
+      transition: null,
     };
     if (isVid) await loadDuration(clip);
     clips.push(clip);
@@ -932,6 +960,8 @@ function syncOrder() {
 
 function delClip(id, e) {
   e.stopPropagation();
+  const idx = clips.findIndex(c => c.id === id);
+  if (idx > 0) clips[idx - 1].transition = null; // Überblendung zum gelöschten Clip entfernen
   const t = storyboard.querySelector(`[data-id="${id}"]`);
   if (t) t.remove();
   clips = clips.filter(c => c.id !== id);
@@ -947,6 +977,27 @@ function updateUI() {
   previewBtn.disabled = n === 0;
   const total = clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
   statsEl.textContent = `${n} Clip${n !== 1 ? 's' : ''} · ${ftm(total)}`;
+  updateTransitionConnectors();
+}
+
+function updateTransitionConnectors() {
+  storyboard.querySelectorAll('.trans-connector').forEach(el => el.remove());
+  const tiles = [...storyboard.querySelectorAll('.tile')];
+  tiles.forEach((tile, i) => {
+    if (i >= tiles.length - 1) return;
+    const clip = clips.find(c => c.id === +tile.dataset.id);
+    if (!clip) return;
+    const btn = document.createElement('div');
+    btn.className = 'trans-connector' + (clip.transition ? ' active' : '');
+    btn.title = clip.transition ? 'Blende entfernen' : 'Blende hinzufügen';
+    btn.textContent = clip.transition ? '⟡' : '+';
+    btn.onclick = e => {
+      e.stopPropagation();
+      clip.transition = clip.transition ? null : 'fade';
+      updateTransitionConnectors();
+    };
+    tile.after(btn);
+  });
 }
 
 // ─── TRIM PANEL ───────────────────────────────────────────────────────────────
@@ -1085,9 +1136,13 @@ const pvTime      = document.getElementById('pvTime');
 let pvStopped  = false;
 let pvPaused   = false;
 let pvCurVid   = null;   // active video element during preview
+let pvVidEl    = null;   // persistent video element (iOS autoplay fix)
 
 const totalPreviewDur = () =>
-  clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
+  clips.reduce((s, c, i) => {
+    const cd = c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration;
+    return s + cd + ((c.transition && i < clips.length - 1) ? TRANS_DUR : 0);
+  }, 0);
 
 function pvSetProgress(elapsed) {
   const total = totalPreviewDur();
@@ -1103,7 +1158,15 @@ async function startPreview() {
   pvPP.textContent = '⏸';
   pvFill.style.width = '0%';
   pvStage.innerHTML = '';
+  pvStage.style.opacity = '1';
+  pvStage.style.transition = '';
   previewBg.classList.add('open');
+
+  // Persistentes Video-Element für alle Clips → iOS autoplay läuft durch
+  pvVidEl = document.createElement('video');
+  pvVidEl.playsinline = true;
+  pvVidEl.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
+  pvStage.appendChild(pvVidEl);
 
   let elapsed = 0;
 
@@ -1111,6 +1174,12 @@ async function startPreview() {
     if (pvStopped) break;
     const clip = clips[i];
     pvClipInfo.innerHTML = `Clip ${i + 1} / ${clips.length} &nbsp;<span>· ${esc(clip.name)}</span>`;
+
+    // Einblenden wenn vorheriger Clip eine Überblendung hatte
+    if (i > 0 && clips[i - 1].transition) {
+      pvStage.style.transition = 'opacity 0.25s';
+      pvStage.style.opacity = '1';
+    }
 
     const clipDur = clip.type === 'video' ? (clip.trimEnd - clip.trimStart) : clip.displayDuration;
     const onTick = e => pvSetProgress(elapsed + e);
@@ -1121,48 +1190,65 @@ async function startPreview() {
       await pvShowPhoto(clip, onTick);
     }
     elapsed += clipDur;
+
+    // Ausblenden nach Clip wenn Überblendung gesetzt
+    if (!pvStopped && i < clips.length - 1 && clip.transition) {
+      pvStage.style.transition = 'opacity 0.25s';
+      pvStage.style.opacity = '0';
+      await new Promise(r => setTimeout(r, 270));
+      elapsed += TRANS_DUR;
+    }
   }
 
   if (!pvStopped) {
+    pvStage.style.transition = 'opacity 0.4s';
+    pvStage.style.opacity = '1';
     pvClipInfo.innerHTML = '✅ &nbsp;<span>Fertig</span>';
     pvFill.style.width = '100%';
     pvPP.textContent = '▶';
-    // auto-close after 2s
     setTimeout(() => { if (!pvStopped) stopPreview(); }, 2000);
   }
 }
 
 function pvPlayVideo(clip, onTick) {
   return new Promise((resolve) => {
-    const vid = document.createElement('video');
-    vid.src = clip.url;
-    vid.playsinline = true;
-    vid.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
-    pvStage.innerHTML = '';
-    pvStage.appendChild(vid);
+    const vid = pvVidEl;
+    // Fotos entfernen, Video-Element einblenden
+    pvStage.querySelectorAll('img').forEach(el => el.remove());
+    vid.style.display = '';
     pvCurVid = vid;
 
-    vid.addEventListener('loadeddata', () => { vid.currentTime = clip.trimStart; }, { once: true });
-    vid.addEventListener('seeked', () => {
+    let started = false;
+    let frameId;
+
+    const startTick = () => {
+      if (started) return;
+      started = true;
       vid.play().catch(() => {});
-      let frameId;
-      const duration = clip.trimEnd - clip.trimStart;
       const tick = () => {
-        if (pvStopped) { vid.pause(); resolve(); return; }
+        if (pvStopped) { vid.pause(); cancelAnimationFrame(frameId); pvCurVid = null; resolve(); return; }
         if (pvPaused)  { frameId = requestAnimationFrame(tick); return; }
         const elapsed = vid.currentTime - clip.trimStart;
         onTick(Math.max(0, elapsed));
         if (vid.ended || vid.currentTime >= clip.trimEnd - 0.05) {
           vid.pause();
           pvCurVid = null;
+          cancelAnimationFrame(frameId);
           resolve();
         } else {
           frameId = requestAnimationFrame(tick);
         }
       };
       frameId = requestAnimationFrame(tick);
-    }, { once: true });
+    };
 
+    vid.src = clip.url;
+    vid.addEventListener('loadeddata', () => {
+      vid.currentTime = clip.trimStart;
+      // Fallback falls seeked nicht feuert (z.B. trimStart=0 auf manchen Browsern)
+      requestAnimationFrame(() => requestAnimationFrame(startTick));
+    }, { once: true });
+    vid.addEventListener('seeked', startTick, { once: true });
     vid.onerror = () => { pvCurVid = null; resolve(); };
     vid.load();
   });
@@ -1170,12 +1256,14 @@ function pvPlayVideo(clip, onTick) {
 
 function pvShowPhoto(clip, onTick) {
   return new Promise(resolve => {
+    // Video-Element ausblenden, Foto drüber legen
+    pvVidEl.style.display = 'none';
+    pvStage.querySelectorAll('img').forEach(el => el.remove());
+    pvCurVid = null;
     const img = document.createElement('img');
     img.src = clip.url;
     img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
-    pvStage.innerHTML = '';
     pvStage.appendChild(img);
-    pvCurVid = null;
 
     const dur = clip.displayDuration * 1000;
     let elapsed = 0;
@@ -1204,7 +1292,10 @@ function togglePreviewPause() {
 function stopPreview() {
   pvStopped = true;
   if (pvCurVid) { pvCurVid.pause(); pvCurVid = null; }
+  pvVidEl = null;
   pvStage.innerHTML = '';
+  pvStage.style.opacity = '1';
+  pvStage.style.transition = '';
   previewBg.classList.remove('open');
 }
 
@@ -1249,7 +1340,10 @@ async function startExport() {
     return;
   }
 
-  const totalDur = clips.reduce((s, c) => s + (c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration), 0);
+  const totalDur = clips.reduce((s, c, i) => {
+    const cd = c.type === 'video' ? (c.trimEnd - c.trimStart) : c.displayDuration;
+    return s + cd + ((c.transition && i < clips.length - 1) ? TRANS_DUR : 0);
+  }, 0);
 
   // setup canvas
   const canvas = document.createElement('canvas');
@@ -1317,13 +1411,21 @@ async function startExport() {
         progressBar.style.width = Math.min(pct, 100) + '%';
       };
 
+      const fadeIn = i > 0 && clips[i - 1].transition ? 0.25 : 0;
       if (clip.type === 'video') {
-        await renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg);
+        await renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg, fadeIn);
       } else {
-        await renderPhoto(clip, canvas, ctx, onProg);
+        await renderPhoto(clip, canvas, ctx, onProg, fadeIn);
       }
 
       elapsed += clipDur;
+
+      // Überblendung: Fade to black nach Clip
+      if (clip.transition && i < clips.length - 1) {
+        await renderFadeToBlack(canvas, ctx, 0.25);
+        elapsed += TRANS_DUR;
+        progressBar.style.width = Math.min((elapsed / totalDur) * 100, 100) + '%';
+      }
     }
   } catch(err) {
     ok = false;
@@ -1398,7 +1500,7 @@ function closeProgress() {
   ep.src = '';
 }
 
-function renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg) {
+function renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg, fadeIn = 0) {
   return new Promise((resolve, reject) => {
     const vid = document.createElement('video');
     vid.src = clip.url;
@@ -1425,6 +1527,10 @@ function renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg) {
         const draw = () => {
           const elapsed = (performance.now() - startStamp) / 1000;
           drawCover(ctx, vid, canvas.width, canvas.height);
+          if (fadeIn > 0 && elapsed < fadeIn) {
+            ctx.fillStyle = `rgba(0,0,0,${1 - elapsed / fadeIn})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
           onProg(Math.min(elapsed / duration, 1));
           if (elapsed >= duration || vid.ended || vid.currentTime >= clip.trimEnd - 0.05) {
             vid.pause();
@@ -1444,22 +1550,42 @@ function renderVideo(clip, canvas, ctx, audioCtx, audioDest, onProg) {
   });
 }
 
-function renderPhoto(clip, canvas, ctx, onProg) {
+function renderPhoto(clip, canvas, ctx, onProg, fadeIn = 0) {
   return new Promise(resolve => {
     const img = new Image();
     img.src = clip.url;
     img.onload = () => {
       const dur = clip.displayDuration * 1000;
+      const fadeInMs = fadeIn * 1000;
       const t0 = performance.now();
       const draw = () => {
         const elapsed = performance.now() - t0;
         drawCover(ctx, img, canvas.width, canvas.height);
+        if (fadeIn > 0 && elapsed < fadeInMs) {
+          ctx.fillStyle = `rgba(0,0,0,${1 - elapsed / fadeInMs})`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
         onProg(Math.min(elapsed / dur, 1));
         if (elapsed >= dur) { resolve(); } else { requestAnimationFrame(draw); }
       };
       requestAnimationFrame(draw);
     };
     img.onerror = () => resolve();
+  });
+}
+
+function renderFadeToBlack(canvas, ctx, duration) {
+  return new Promise(resolve => {
+    const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const t0 = performance.now();
+    const draw = () => {
+      const t = Math.min((performance.now() - t0) / (duration * 1000), 1);
+      ctx.putImageData(snapshot, 0, 0);
+      ctx.fillStyle = `rgba(0,0,0,${t})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (t < 1) { requestAnimationFrame(draw); } else { resolve(); }
+    };
+    requestAnimationFrame(draw);
   });
 }
 
